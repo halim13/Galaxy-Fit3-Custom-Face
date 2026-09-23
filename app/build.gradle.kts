@@ -39,6 +39,11 @@ android {
     }
 }
 
+// Named APK output: GalaxyFit3-CustomFace-v0.1.0-release.apk
+base {
+    archivesName.set("GalaxyFit3-CustomFace-v${android.defaultConfig.versionName}")
+}
+
 dependencies {
     implementation(project(":core:format"))
     implementation(project(":core:image"))
