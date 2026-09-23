@@ -21,6 +21,8 @@
 
 # Galaxy Fit 3 — Custom Face
 
+![APK downloads](https://img.shields.io/github/downloads/halim13/Galaxy-Fit3-Custom-Face/total?label=APK%20downloads)
+
 A hobby Android app to build and install **custom watch faces** for the
 Samsung **Galaxy Fit 3 (SM-R390)**.
 
