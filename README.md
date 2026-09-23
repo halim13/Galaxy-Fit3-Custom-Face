@@ -25,11 +25,6 @@ You pick a stock face as a seed, edit what is on it (background, frame,
 widgets, positions, rotation), export the result, and push it to your watch —
 right from your phone.
 
-![Home](preview/home.jpg)
-![Editor](preview/editor.jpg)
-![Download face](preview/download_face.jpg)
-![On the watch](preview/watch.jpg)
-
 ## Features
 
 - Browse and pick a stock Galaxy Fit 3 face as your starting seed.
@@ -64,6 +59,16 @@ Satvik, for the original work and the idea. Go check that project out too.
 - Release build: `./gradlew :app:assembleRelease`
   (release is signed with the debug key — fine for a hobby release, not for
   the Play Store).
+
+## Screenshots
+
+| Home | Editor |
+| --- | --- |
+| ![Home](preview/home.jpg) | ![Editor](preview/editor.jpg) |
+
+| Download face | On the watch |
+| --- | --- |
+| ![Download face](preview/download_face.jpg) | ![On the watch](preview/watch.jpg) |
 
 ## Donations
 
