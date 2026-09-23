@@ -13,6 +13,9 @@
 > **Use it at your own risk, and please be patient.** If some widgets appear in
 > the wrong position inside the editor but look fine on the watch, that
 > mismatch is expected — it does not mean your face is broken.
+>
+> Also, I am sorry about the UI/UX quality — it is not great. Design was not the
+> priority here; getting a working face onto the watch was.
 
 ---
 
