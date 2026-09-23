@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Bluetooth permissions for RFCOMM install. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation"/>
+
+    <!-- Galaxy Store catalogue (in-app face download). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Companion app probing -->
+    <queries>
+        <package android:name="com.samsung.accessory"/>
+        <package android:name="com.samsung.android.app.watchmanager"/>
+        <package android:name="com.samsung.android.app.watchmanager2"/>
+        <package android:name="com.samsung.android.app.watchmanagerstub"/>
+        <package android:name="com.samsung.android.hostmanager.app"/>
+        <package android:name="com.samsung.wearable.fit3plugin"/>
+    </queries>
+
+    <application
+        android:name=".GalaxyFit3App"
+        android:label="Galaxy Fit3 Custom Face"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.GalaxyFit3"
+        android:allowBackup="true"
+        android:usesCleartextTraffic="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"/>
+        </provider>
+
+        <!-- emoji2's auto-init makes Compose Text route through EmojiProcessor, which
+             spins in an infinite loop on some Xiaomi/Android 16 devices (ANR on editor
+             open). The app has no emoji in its UI, so drop the auto-initializers. -->
+        <provider
+            android:name="androidx.emoji2.text.EmojiCompatInitializer"
+            android:authorities="${applicationId}.emoji2-EmojiCompatInitializer"
+            tools:node="remove"/>
+        <provider
+            android:name="androidx.emoji2.text.EmojiCompatInitializer$BackgroundInitializer"
+            android:authorities="${applicationId}.emoji2-EmojiCompatInitializer$BackgroundInitializer"
+            tools:node="remove"/>
+
+        <!-- emoji2 also registers itself as a Jetpack-Startup initializer (meta-data
+             under androidx.startup.InitializationProvider); that path survives the
+             provider removal above. No app code uses androidx.startup (no
+             ProcessLifecycleOwner, no startup-only libs), so disable it entirely. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            tools:node="remove"/>
+
+    </application>
+
+</manifest>

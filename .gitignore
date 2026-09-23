@@ -1,0 +1,71 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Kotlin
+.kotlin/
+**/bin/main/
+**/bin/test/
+
+# ===================== Android Studio / IntelliJ =====================
+.idea/
+*.iml
+*.iws
+*.ipr
+.idea_modules/
+captures/
+.cxx/
+.externalNativeBuild/
+.attach_pid*
+.navigation/
+
+# Local device/sdk paths — machine specific, never commit
+local.properties
+
+# Signing material — never commit keys
+*.jks
+*.keystore
+keystore.properties
+
+# App outputs that belong to CI/artifact storage, not VCS
+*.apk
+*.aab
+*.ap_
+*.idsig
+output.json
+output-metadata.json
+
+# Firebase / crash reporting configs with per-project identifiers
+google-services.json
+fabric.properties
+
+# Profiling dumps
+*.hprof
+*.trace
+
+# ===================== macOS =====================
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+Icon?
+
+# Folders macOS scatters onto volumes it touches
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# iCloud Drive placeholders waiting for download
+*.icloud
+
+# ===================== Agent / tool droppings =====================
+.kilo/
+.notebook/
+.freebuff/
+.pytest_cache/
+.github/modernize/
+agent-manager.json
