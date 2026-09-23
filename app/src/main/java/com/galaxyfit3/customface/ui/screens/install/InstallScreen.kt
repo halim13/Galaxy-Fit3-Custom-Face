@@ -266,6 +266,11 @@ fun InstallScreen(
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+                        Text(
+                            "Note: The active style shown on your watch after install may not match the one you last edited. If the non-default style doesn't appear, add the face to Favorites in Galaxy Wearable first so all styles become available, then switch styles on the watch.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
                         Button(
                             onClick = {
                                 idText.toIntOrNull()?.let {
@@ -289,23 +294,31 @@ fun InstallScreen(
             Spacer(Modifier.height(4.dp))
 
             // Install button — only when the face's own identity is sendable as-is.
-            Button(
+Button(
                 onClick = { viewModel.install() },
                 enabled = sizeError == null && installUi.identityError == null &&
                     state.setupComplete && !state.isActive,
                 modifier = Modifier.fillMaxWidth()
             ) {
-Text(
-                        when {
-                            sizeError != null -> "Too large"
-                            installUi.identityError != null -> "Face not registered on the watch"
-                            state.phase == DirectInstallPhase.FAILED -> "Try again"
-                            state.phase == DirectInstallPhase.COMPLETE -> "Done"
-                            state.isActive -> "Sending…"
-                            !state.setupComplete -> "Not ready"
-                            else -> "Send to watch"
-                        }
-                    )
+                Text(
+                    when {
+                        sizeError != null -> "Too large"
+                        installUi.identityError != null -> "Face not registered on the watch"
+                        state.phase == DirectInstallPhase.FAILED -> "Try again"
+                        state.phase == DirectInstallPhase.COMPLETE -> "Done"
+                        state.isActive -> "Sending…"
+                        !state.setupComplete -> "Not ready"
+                        else -> "Send to watch"
+                    }
+                )
+            }
+
+            if (state.phase == DirectInstallPhase.COMPLETE) {
+                Text(
+                    "Note: The active style shown on your watch after install may not match the one you last edited. If the non-default style doesn't appear, add the face to Favorites in Galaxy Wearable first so all styles become available, then switch styles on the watch.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             if (state.phase == DirectInstallPhase.FAILED ||
