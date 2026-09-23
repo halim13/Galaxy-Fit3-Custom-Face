@@ -1,6 +1,9 @@
 package com.galaxyfit3.customface.ui.screens.install
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,6 +24,23 @@ import com.galaxyfit3.core.delivery.DirectInstallPhase
 import com.galaxyfit3.core.delivery.SetupStep
 import com.galaxyfit3.customface.viewmodel.InstallViewModel
 
+// ponytail: discovery is silent when the watch is unpaired or sleep — hand the
+// user somewhere to go instead of leaving them staring at nothing.
+private fun openGalaxyWearable(context: Context) {
+    val launcher = try {
+        context.packageManager.getLaunchIntentForPackage("com.samsung.android.app.watchmanager")
+    } catch (_: Exception) {
+        null
+    }
+    if (launcher != null) {
+        context.startActivity(launcher)
+    } else {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.samsung.android.app.watchmanager"))
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InstallScreen(
@@ -37,6 +57,9 @@ fun InstallScreen(
     LifecycleResumeEffect(Unit) { viewModel.refresh(); onPauseOrDispose { } }
 
     val context = LocalContext.current
+    // Only nudge the user towards Galaxy Wearable once per screen visit: after
+    // the first allow it re-opens on every Discover and just gets in the way.
+    var wearableOffered by remember { mutableStateOf(false) }
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { /* permission handled via installer refresh */ }
@@ -108,7 +131,13 @@ fun InstallScreen(
                 label = "Discover watchface & OTA peers",
                 done = state.isStepDone(SetupStep.PEERS_DISCOVERED),
                 busy = state.isStepBusy(SetupStep.PEERS_DISCOVERED),
-                onClick = { viewModel.initializeAndDiscover() },
+                onClick = {
+                    if (!wearableOffered) {
+                        wearableOffered = true
+                        openGalaxyWearable(context)
+                    }
+                    viewModel.initializeAndDiscover()
+                },
                 actionLabel = "Discover",
             )
 
