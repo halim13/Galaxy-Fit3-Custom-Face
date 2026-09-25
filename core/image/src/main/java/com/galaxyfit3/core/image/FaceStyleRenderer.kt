@@ -355,6 +355,10 @@ object FaceStyleRenderer {
         }
         if (segs.isEmpty()) return
 
+        // Battery cells render top-left instead of center, matching how the
+        // watch lays the battery out.
+        val batteryCell = segs.all { it.key == "battery" }
+
         val pt = compFontPt(w, r)
         val paint = paintFor(pt, family)
 
@@ -388,9 +392,10 @@ object FaceStyleRenderer {
 
         val ay = boxY + w.hOrY2 / 2
         // y is the vertical mid of the cell; the glyph box top sits pt/2 above it.
-        val topY = ay - pt / 2
-        var compAlign = 1
-        if (segs.all { it.key in dateKeys }) {
+        // Battery cells pin the glyph box to the cell TOP instead.
+        val topY = if (batteryCell) boxY else ay - pt / 2
+        var compAlign = if (batteryCell) 0 else 1
+        if (!batteryCell && segs.all { it.key in dateKeys }) {
             for (ow in style.widgets) {
                 if (ow.type != WidgetType.PAIR || ow.sequenceId == 0) continue
                 if (abs(ow.x - w.x) > 4 || abs(ow.wOrX2 - w.wOrX2) > 12) continue
