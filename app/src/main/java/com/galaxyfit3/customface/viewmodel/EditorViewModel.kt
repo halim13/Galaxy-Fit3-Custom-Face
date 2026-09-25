@@ -72,7 +72,9 @@ data class FrameOverrideEntry(
     val fit: String
 )
 
-/** A library entry — a source widget the user can drop onto the canvas. */
+/** A library entry — a source widget the user can drop onto the canvas.
+ *  [cacheIndex] is non-null for cache-backed rows (seed styles other than the active
+ *  one, and imported faces); those added tabs get donorIndex = -(cacheIndex + 1). */
 data class DonorEntry(
     val donorIndex: Int,
     val meaning: WidgetMeaning,
@@ -80,7 +82,8 @@ data class DonorEntry(
     val x: Int,
     val y: Int,
     /** Decoded first raster, for thumbnails in the widget library. */
-    val preview: Bitmap? = null
+    val preview: Bitmap? = null,
+    val cacheIndex: Int? = null
 )
 
 /** Another downloaded project usable as a donor-face source. */
@@ -129,6 +132,14 @@ data class EditorUiState(
     /** Widgets imported from a different face, offered in the widget library.
      *  Placed via addForeignDonor; their donorIndex on the canvas is negative. */
     val foreignDonors: List<DonorEntry> = emptyList(),
+    /** Style picker labels for the open face's own styles ("Style 1"…). */
+    val thisFaceSources: List<String> = emptyList(),
+    /** Style picker labels for the imported donor face's styles. */
+    val foreignSources: List<String> = emptyList(),
+    /** Which of [thisFaceSources] the library currently shows. */
+    val thisFaceSource: Int = 0,
+    /** Which of [foreignSources] the library currently shows. */
+    val foreignSource: Int = 0,
     /** One-shot import feedback ("X widget dari <file>", or failure reason). */
     val libraryNotice: String? = null
 )
@@ -153,9 +164,24 @@ class EditorViewModel @Inject constructor(
      *  threads (UI switches style, engine bakes), hence concurrent. */
     private val styleStates = java.util.concurrent.ConcurrentHashMap<Int, StyleState>()
 
-    /** Widgets borrowed from an imported donor face. Keyed by library index (0..n);
-     *  a placed widget referencing it stores donorIndex = -(index + 1). */
+    /** Widgets borrowed from an imported donor face or another style of the open face.
+     *  Keyed by flat library index (0..n); a placed widget referencing it stores
+     *  donorIndex = -(index + 1). */
     private val foreignDonorCache = java.util.concurrent.ConcurrentHashMap<Int, DonorCacheItem>()
+
+    /** (seed style index, widget index) -> flat library-cache index, built at load() so
+     *  cross-style donors resolve to the same stable donorIndex after a reload. */
+    private val libraryIndexByWidget = java.util.concurrent.ConcurrentHashMap<Pair<Int, Int>, Int>()
+
+    /** Imported donor-face styles, rebuilt from the saved donor bytes on load(). */
+    @Volatile private var donorStyles: List<StyleEntry> = emptyList()
+
+    /** Imported rows per donor-face style (each row already carries its cache index). */
+    private val foreignRowsByStyle = java.util.concurrent.ConcurrentHashMap<Int, List<DonorEntry>>()
+
+    /** Next flat library-cache index; also the base of placed donorIndex = -(g+1). */
+    private var libraryIndexCursor = 0
+    private fun nextLibraryIndex(): Int = libraryIndexCursor++
 
     private data class DonorCacheItem(
         val donor: WidgetRecord,
@@ -163,7 +189,10 @@ class EditorViewModel @Inject constructor(
         /** The donor face's own font bindings, for reseating borrowed text widgets. */
         val bindings: List<FontBinding> = emptyList(),
         /** The donor face's locale tables (font_en.bin …), carried with borrowed text. */
-        val glyphEntries: List<ContainerEntry> = emptyList()
+        val glyphEntries: List<ContainerEntry> = emptyList(),
+        /** True when the donor came from the open face's own styles: its font/glyph
+         *  indices already resolve in the seed container, so no reseat/carry. */
+        val sameFace: Boolean = false
     )
 
     /** The stock layout signature of every style — what "unedited" looks like, so only
@@ -239,23 +268,53 @@ class EditorViewModel @Inject constructor(
                 _ui.update { it.copy(projectId = projectId, projectName = p.name, error = "Seed has no editable style") }
                 return@launch
             }
-            val s0 = seedStyles[0]
-            val donors = s0.widgets.indices.mapNotNull { donorEntry(s0, it) }
+            val restoredStyle0 = p.styleIndex.coerceIn(0, (seedStyles.size - 1).coerceAtLeast(0))
+            val activeStyle0 = seedStyles[restoredStyle0]
+            val donors = activeStyle0.widgets.indices.mapNotNull { donorEntry(activeStyle0, it) }
 
-            // Widgets borrowed from an imported donor face ship with the project; rebuild
-            // the library + donor cache so placed references reconstruct and stay editable.
+            // Widget library: EVERY seed style's widgets get a stable flat cache index
+            // first (cross-style integration donors, donorIndex = -(g+1)); imported donor
+            // styles append after. Same order and rebuild rule as the desktop editor, so
+            // a placed widget's donorIndex reconstructs identically after a reload.
+            // ponytail: v0.1.0 saved projects (borrowed from a style-0 donor) re-map onto
+            // this flat space only while that donor style had no background widget.
             foreignDonorCache.clear()
+            libraryIndexByWidget.clear()
+            foreignRowsByStyle.clear()
+            libraryIndexCursor = 0
+            seedStyles.forEachIndexed { si, s ->
+                s.widgets.indices.forEach { wi ->
+                    if (donorEntry(s, wi) == null) return@forEach
+                    val g = nextLibraryIndex()
+                    libraryIndexByWidget[si to wi] = g
+                    val d = BlankFaceBuilder.extractDonor(s, wi)
+                    foreignDonorCache[g] = DonorCacheItem(d.donor, d.donorRasters, sameFace = true)
+                }
+            }
             var foreignDonors: List<DonorEntry> = emptyList()
+            var foreignSource = 0
+            donorStyles = emptyList()
             store.donorFaceBytes(projectId)?.let { donorBytes ->
                 try {
                     val donorParsed = WatchFaceParser.parse(donorBytes)
-                    val donorStyle = donorParsed.styleEntries
+                    val dStyles = donorParsed.styleEntries
                         .mapNotNull { (it.payload as? ContainerPayload.Style)?.data }
-                        .firstOrNull() ?: return@let
-                    foreignDonors = donorStyle.widgets.indices.mapNotNull { donorEntry(donorStyle, it) }
-                    foreignDonors.forEach { entry ->
-                        val d = BlankFaceBuilder.extractDonor(donorStyle, entry.donorIndex)
-foreignDonorCache[entry.donorIndex] = DonorCacheItem(d.donor, d.donorRasters, donorParsed.fontBindings, TextBorrow.glyphEntries(donorParsed))
+                    donorStyles = dStyles
+                    val rows = dStyles.map { s ->
+                        s.widgets.indices.mapNotNull { donorEntry(s, it) }.map { entry ->
+                            val d = BlankFaceBuilder.extractDonor(s, entry.donorIndex)
+                            val g = nextLibraryIndex()
+                            foreignDonorCache[g] = DonorCacheItem(
+                                d.donor, d.donorRasters, donorParsed.fontBindings, TextBorrow.glyphEntries(donorParsed)
+                            )
+                            entry.copy(cacheIndex = g)
+                        }
+                    }
+                    rows.forEachIndexed { i, r -> foreignRowsByStyle[i] = r }
+                    val first = rows.indexOfFirst { it.isNotEmpty() }
+                    if (first >= 0) {
+                        foreignDonors = rows[first]
+                        foreignSource = first
                     }
                 } catch (_: Exception) {
                     // Corrupt donor face: dropped. Placed widgets referencing it are skipped
@@ -347,6 +406,10 @@ foreignDonorCache[entry.donorIndex] = DonorCacheItem(d.donor, d.donorRasters, do
                     frameOverrides = active.frameOverrides.keys,
                     modifiedStyles = styleStates.filterValues { it.modified }.keys,
                     selectedStyleIndex = restoredStyle,
+                    thisFaceSources = seedStyles.indices.map { "Style ${it + 1}" },
+                    foreignSources = donorStyles.indices.map { "Style ${it + 1}" },
+                    thisFaceSource = restoredStyle,
+                    foreignSource = foreignSource,
                     foreignDonors = foreignDonors,
                     libraryNotice = null
                 )
@@ -539,7 +602,11 @@ foreignDonorCache[entry.donorIndex] = DonorCacheItem(d.donor, d.donorRasters, do
                 backgroundColor = st.backgroundColor,
                 frameOverrides = st.frameOverrides.keys,
                 selectedId = null,
-                selectedStyleIndex = index
+                selectedStyleIndex = index,
+                donors = styles.getOrNull(index)?.let { s ->
+                    s.widgets.indices.mapNotNull { donorEntry(s, it) }
+                } ?: it.donors,
+                thisFaceSource = index
             )
         }
     }
@@ -608,24 +675,9 @@ foreignDonorCache[entry.donorIndex] = DonorCacheItem(d.donor, d.donorRasters, do
         else placed + listOfNotNull(backgroundWidget(style))
 
     fun addFromDonor(index: Int) {
-        val s0 = currentStyle() ?: return
-        if (index !in 0 until s0.widgets.size) return
-        val donor = BlankFaceBuilder.extractDonor(s0, index)
-        val (px, py) = if (donor.donor.isHand) {
-            BlankFaceBuilder.handCenter(donor.donor)
-        } else donor.donor.x to donor.donor.y
-        val placed = PlacedEditorWidget(
-            id = nextId++,
-            donorIndex = index,
-            x = px,
-            y = py,
-            meaning = WidgetMeaningCatalog.meaning(donor.donor, s0.rasters),
-            donor = donor.donor,
-            preview = donorPreview(s0, index)
-        )
-        _ui.update { it.copy(placed = it.placed + placed, selectedId = placed.id) }
-        persist()
-        refresh()
+        val s = currentStyle() ?: return
+        if (index !in 0 until s.widgets.size) return
+        addLibraryRow(donorEntry(s, index) ?: return)
     }
 
     /** Import another face's container as a widget library. [ui] is called on the main
@@ -652,53 +704,88 @@ foreignDonorCache[entry.donorIndex] = DonorCacheItem(d.donor, d.donorRasters, do
         } catch (e: Exception) {
             return "File cannot be read as a face (${e.message ?: "bad format?"})."
         }
-        val donorStyle = parsed.styleEntries
+        val dStyles = parsed.styleEntries
             .mapNotNull { (it.payload as? ContainerPayload.Style)?.data }
-            .firstOrNull()
-            ?: return "The file contains no face style."
-        val entries = donorStyle.widgets.indices.mapNotNull { donorEntry(donorStyle, it) }
-        if (entries.isEmpty()) {
-            // Still store the container so already-placed foreign widgets reconstruct;
-            // nothing new is offered in the library.
-            if (store.donorFaceBytes(projectId) == null) store.saveDonorFace(projectId, bytes)
-            return "That face has no usable widgets."
-        }
-        store.saveDonorFace(projectId, bytes)
-        entries.forEach { entry ->
-            val d = BlankFaceBuilder.extractDonor(donorStyle, entry.donorIndex)
-            foreignDonorCache[entry.donorIndex] = DonorCacheItem(d.donor, d.donorRasters, parsed.fontBindings, TextBorrow.glyphEntries(parsed))
-        }
-        _ui.update { it.copy(foreignDonors = entries) }
-        return "${entries.size} widgets imported from another face.${donorWarnings(donorStyle, entries)}"
-    }
-
-    /** Warnings about a donor face the user should know before borrowing from it:
-     *  a different panel size or data sources the Fit3 firmware won't draw. */
-    private fun donorWarnings(donorStyle: StyleEntry, entries: List<DonorEntry>): String {
-        val panel = donorStyle.rasters.firstOrNull()
-        val warnings = buildList {
-            if (panel != null &&
-                (panel.width != WatchFaceFormat.PANEL_WIDTH || panel.height != WatchFaceFormat.PANEL_HEIGHT)
-            ) {
-                add("This face's panel size is ${panel.width}×${panel.height} (seed 256×402) — widgets may not appear on the watch.")
+        if (dStyles.isEmpty()) return "The file contains no face style."
+        val rows = dStyles.map { s ->
+            s.widgets.indices.mapNotNull { donorEntry(s, it) }.map { entry ->
+                val d = BlankFaceBuilder.extractDonor(s, entry.donorIndex)
+                val g = nextLibraryIndex()
+                foreignDonorCache[g] = DonorCacheItem(
+                    d.donor, d.donorRasters, parsed.fontBindings, TextBorrow.glyphEntries(parsed)
+                )
+                entry.copy(cacheIndex = g)
             }
-            val unknown = entries.count { it.meaning == WidgetMeaning.UNKNOWN }
-            if (unknown > 0) add("$unknown unrecognized widgets — may not appear on the watch.")
         }
-        return if (warnings.isEmpty()) "" else " " + warnings.joinToString(" ")
+        val entries = rows.flatten()
+        store.saveDonorFace(projectId, bytes)
+        donorStyles = dStyles
+        rows.forEachIndexed { i, r -> foreignRowsByStyle[i] = r }
+        val current = _ui.value
+        val first = rows.indexOfFirst { it.isNotEmpty() }
+        val foreignSource = if (rows.isNotEmpty() && current.foreignSource !in rows.indices) first else current.foreignSource
+        val shown = if (foreignSource in rows.indices) rows[foreignSource] else entries
+        _ui.update {
+            it.copy(
+                foreignDonors = shown,
+                foreignSources = dStyles.indices.map { s -> "Style ${s + 1}" },
+                foreignSource = foreignSource,
+                libraryNotice = "${entries.size} widgets imported from another face."
+            )
+        }
+        return "${entries.size} widgets imported from another face.${donorWarnings(entries)}"
     }
 
-    /** Place a foreign-library widget on the board. Its donorIndex on the canvas is
-     *  negative (-(libraryIndex + 1)) so it never collides with the face's own widgets. */
-    fun addForeignDonor(libraryIndex: Int) {
-        val entry = _ui.value.foreignDonors.getOrNull(libraryIndex) ?: return
-        val item = foreignDonorCache[libraryIndex] ?: return
+    /** Style picker for This-face library rows: positive donor indices when the source
+     *  IS the active style, cache rows (negative indices) for the other styles. */
+    fun setThisFaceStyle(index: Int) {
+        if (_ui.value.thisFaceSource == index) return
+        val rows = styles.getOrNull(index)?.let { s ->
+            s.widgets.indices.mapNotNull { donorEntry(s, it) }
+        } ?: emptyList()
+        val resolved = if (index == selectedStyleIndex) rows else rows.map { entry ->
+            libraryIndexByWidget[index to entry.donorIndex]?.let { g -> entry.copy(cacheIndex = g) } ?: entry
+        }
+        _ui.update { it.copy(thisFaceSource = index, donors = resolved) }
+        refresh()
+    }
+
+    /** Style picker for Imported-face library rows. */
+    fun setForeignStyle(index: Int) {
+        if (_ui.value.foreignSource == index) return
+        _ui.update { it.copy(foreignSource = index, foreignDonors = foreignRowsByStyle[index] ?: emptyList()) }
+        refresh()
+    }
+
+    /** Place a library row onto the board. Rows from the active style keep a positive
+     *  donorIndex (its own widgets); cache-backed rows get (-(cacheIndex + 1)). */
+    fun addLibraryRow(entry: DonorEntry) {
+        if (entry.cacheIndex != null) { addCacheRow(entry); return }
+        val donor = styles.getOrNull(selectedStyleIndex)?.let { styleDonor(it, entry.donorIndex) }
+            ?: return
+        val placed = PlacedEditorWidget(
+            id = nextId++,
+            donorIndex = entry.donorIndex,
+            x = entry.x,
+            y = entry.y,
+            meaning = entry.meaning,
+            donor = donor,
+            preview = donorPreview(styles.getOrNull(selectedStyleIndex) ?: return, entry.donorIndex)
+        )
+        _ui.update { it.copy(placed = it.placed + placed, selectedId = placed.id) }
+        persist()
+        refresh()
+    }
+
+    private fun addCacheRow(entry: DonorEntry) {
+        val g = entry.cacheIndex ?: return
+        val item = foreignDonorCache[g] ?: return
         val (px, py) = if (item.donor.isHand) {
             BlankFaceBuilder.handCenter(item.donor)
         } else item.donor.x to item.donor.y
         val placed = PlacedEditorWidget(
             id = nextId++,
-            donorIndex = -(libraryIndex + 1),
+            donorIndex = -(g + 1),
             x = px,
             y = py,
             meaning = entry.meaning,
@@ -711,6 +798,22 @@ foreignDonorCache[entry.donorIndex] = DonorCacheItem(d.donor, d.donorRasters, do
         refresh()
     }
 
+    /** Warnings about a donor face the user should know before borrowing from it:
+     *  a different panel size or data sources the Fit3 firmware won't draw. */
+    private fun donorWarnings(entries: List<DonorEntry>): String {
+        val panel = donorStyles.firstOrNull()?.rasters?.firstOrNull()
+        val warnings = buildList {
+            if (panel != null &&
+                (panel.width != WatchFaceFormat.PANEL_WIDTH || panel.height != WatchFaceFormat.PANEL_HEIGHT)
+            ) {
+                add("This face's panel size is ${panel.width}×${panel.height} (seed 256×402) — widgets may not appear on the watch.")
+            }
+            val unknown = entries.count { it.meaning == WidgetMeaning.UNKNOWN }
+            if (unknown > 0) add("$unknown unrecognized widgets — may not appear on the watch.")
+        }
+        return if (warnings.isEmpty()) "" else " " + warnings.joinToString(" ")
+    }
+
     /** Another way in: import a face that is already downloaded in the app (a project's
      *  seed container is the same file a picker would return). */
     fun importDonorFromProject(sourceProjectId: String) {
@@ -721,7 +824,8 @@ foreignDonorCache[entry.donorIndex] = DonorCacheItem(d.donor, d.donorRasters, do
             return
         }
         viewModelScope.launch(engine) {
-            _ui.update { it.copy(libraryNotice = importFaceBytes(projectId, bytes)) }
+            val notice = importFaceBytes(projectId, bytes)
+            _ui.update { it.copy(libraryNotice = notice) }
         }
     }
 

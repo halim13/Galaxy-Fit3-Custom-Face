@@ -354,8 +354,13 @@ fun EditorScreen(
         WidgetLibrary(
             donors = ui.donors,
             foreignDonors = ui.foreignDonors,
-            onAdd = { index -> viewModel.addFromDonor(index); showLibrary = false },
-            onAddForeign = { index -> viewModel.addForeignDonor(index); showLibrary = false },
+            thisFaceSources = ui.thisFaceSources,
+            foreignSources = ui.foreignSources,
+            thisFaceSource = ui.thisFaceSource,
+            foreignSource = ui.foreignSource,
+            onThisFaceStyle = { index -> viewModel.setThisFaceStyle(index) },
+            onForeignStyle = { index -> viewModel.setForeignStyle(index) },
+            onAddRow = { row -> viewModel.addLibraryRow(row); showLibrary = false },
             onImportFace = { facePicker.launch("*/*") },
             onImportFromProject = { showExistingFaces = true },
             onDismiss = { showLibrary = false }
@@ -1700,8 +1705,13 @@ private fun Chevron(vertical: Boolean, step: Int, modifier: Modifier = Modifier)
 private fun WidgetLibrary(
     donors: List<DonorEntry>,
     foreignDonors: List<DonorEntry>,
-    onAdd: (Int) -> Unit,
-    onAddForeign: (Int) -> Unit,
+    thisFaceSources: List<String>,
+    foreignSources: List<String>,
+    thisFaceSource: Int,
+    foreignSource: Int,
+    onThisFaceStyle: (Int) -> Unit,
+    onForeignStyle: (Int) -> Unit,
+    onAddRow: (DonorEntry) -> Unit,
     onImportFace: () -> Unit,
     onImportFromProject: () -> Unit,
     onDismiss: () -> Unit
@@ -1743,26 +1753,60 @@ private fun WidgetLibrary(
             ) {
                 if (donors.isNotEmpty()) {
                     item(span = { GridItemSpan(2) }) {
-                        Text("This face", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 4.dp))
+                        Column(Modifier.padding(horizontal = 4.dp)) {
+                            Text(
+                                "This face",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            StylePicker(
+                                sources = thisFaceSources,
+                                selected = thisFaceSource,
+                                onPick = onThisFaceStyle
+                            )
+                        }
                     }
-                    items(donors, key = { it.donorIndex }) { donor ->
-                        LibraryCard(donor = donor, onClick = { onAdd(donor.donorIndex) })
+                    items(donors, key = { it.cacheIndex?.toString() ?: "d${it.donorIndex}" }) { donor ->
+                        LibraryCard(donor = donor, onClick = { onAddRow(donor) })
                     }
                 }
                 if (foreignDonors.isNotEmpty()) {
                     item(span = { GridItemSpan(2) }) {
-                        Text(
-                            "From another face",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp)
-                        )
+                        Column(Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp)) {
+                            Text(
+                                "From another face",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            StylePicker(
+                                sources = foreignSources,
+                                selected = foreignSource,
+                                onPick = onForeignStyle
+                            )
+                        }
                     }
-                    items(foreignDonors, key = { "f${it.donorIndex}" }) { donor ->
-                        LibraryCard(donor = donor, onClick = { onAddForeign(donor.donorIndex) })
+                    items(foreignDonors, key = { "f${it.cacheIndex ?: it.donorIndex}" }) { donor ->
+                        LibraryCard(donor = donor, onClick = { onAddRow(donor) })
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun StylePicker(sources: List<String>, selected: Int, onPick: (Int) -> Unit) {
+    if (sources.size < 2) return
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        sources.forEachIndexed { i, label ->
+            FilterChip(
+                selected = i == selected,
+                onClick = { onPick(i) },
+                label = { Text(label) },
+                modifier = Modifier.padding(start = 1.dp)
+            )
         }
     }
 }
