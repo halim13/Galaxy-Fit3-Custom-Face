@@ -719,8 +719,8 @@ internal fun placedRect(p: PlacedEditorWidget): IntRect? {
         // bind the cell the renderer draws into, not the raw stored origin.
         WidgetType.PAIR, WidgetType.COMP ->
             if (w > 0 && h > 0) {
-                val bx = if (d.x < 0) WatchFaceFormat.PANEL_WIDTH + d.x - w else d.x
-                val by = if (d.y < 0) WatchFaceFormat.PANEL_HEIGHT + d.y - h else d.y
+                val bx = if (p.x < 0) WatchFaceFormat.PANEL_WIDTH + p.x - w else p.x
+                val by = if (p.y < 0) WatchFaceFormat.PANEL_HEIGHT + p.y - h else p.y
                 return IntRect(bx, by, bx + w, by + h)
             }
         // Endpoint-stored widgets (badge, bar): bound both endpoints.

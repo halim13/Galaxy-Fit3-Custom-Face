@@ -69,3 +69,7 @@ Icon?
 .pytest_cache/
 .github/modernize/
 agent-manager.json
+
+# Desktop editor tooling (JVM/Swing dev tool) — never pushed to the mobile repo
+/desktop/
+/core/image-desktop/

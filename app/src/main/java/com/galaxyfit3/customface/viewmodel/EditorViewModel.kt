@@ -793,7 +793,7 @@ foreignDonorCache[entry.donorIndex] = DonorCacheItem(d.donor, d.donorRasters, do
     fun finishDrag() {
         _ui.update { it.copy(dragWidgetPreview = null) }
         viewModelScope.launch(engine) { saveStyleEdit(selectedStyleIndex) }
-        scheduleRebuild()
+        refresh()
     }
 
     fun select(id: Long?) {
@@ -1371,29 +1371,27 @@ foreignDonorCache[entry.donorIndex] = DonorCacheItem(d.donor, d.donorRasters, do
         return if (f.exists()) f else null
     }
 
-    /** How many image frames the donor widget has (0 = it has no raster of its own). */
-    fun frameCount(donorIndex: Int): Int = try {
-        currentStyle()?.let { BlankFaceBuilder.extractDonor(it, donorIndex).donorRasters.size } ?: 0
+    /** The donor widget's image frames for one placed [donorIndex]: the face's own
+     *  widget, or an imported face's (negative index = -(library + 1)). */
+    private fun donorRastersOf(donorIndex: Int): List<Raster> = try {
+        if (donorIndex < 0) foreignDonorCache[-donorIndex - 1]?.donorRasters.orEmpty()
+        else currentStyle()?.let { BlankFaceBuilder.extractDonor(it, donorIndex).donorRasters }.orEmpty()
     } catch (_: Exception) {
-        0
+        emptyList()
     }
 
+    /** How many image frames the donor widget has (0 = it has no raster of its own). */
+    fun frameCount(donorIndex: Int): Int = donorRastersOf(donorIndex).size
+
     /** Pixel size of one donor frame, for the fit-mode preview. */
-    fun frameSize(donorIndex: Int, frameIndex: Int): Pair<Int, Int> = try {
-        currentStyle()?.let {
-            BlankFaceBuilder.extractDonor(it, donorIndex).donorRasters.getOrNull(frameIndex)
-        }?.let { it.width to it.height } ?: (0 to 0)
-    } catch (_: Exception) {
-        0 to 0
-    }
+    fun frameSize(donorIndex: Int, frameIndex: Int): Pair<Int, Int> =
+        donorRastersOf(donorIndex).getOrNull(frameIndex)?.let { it.width to it.height } ?: (0 to 0)
 
     /** The bitmap of one donor frame for the inspector's thumbnails: the user's
      *  replacement when the frame has been replaced (so the row shows what the frame
      *  became), else the stock raster. Main-thread safe; decodes are cached. */
     fun donorFrameBitmap(donorIndex: Int, frameIndex: Int): Bitmap? = try {
-        val style = currentStyle() ?: return null
-        val raster = BlankFaceBuilder.extractDonor(style, donorIndex).donorRasters.getOrNull(frameIndex)
-            ?: return null
+        val raster = donorRastersOf(donorIndex).getOrNull(frameIndex) ?: return null
         val projectId = _ui.value.projectId
         val f = if (projectId.isNotBlank()) resolveFrameFile(projectId, selectedStyleIndex, donorIndex, frameIndex) else null
         if (f != null) {
@@ -1440,12 +1438,7 @@ foreignDonorCache[entry.donorIndex] = DonorCacheItem(d.donor, d.donorRasters, do
      */
     fun setFrameImageFromUri(donorIndex: Int, frameIndex: Int, uri: android.net.Uri, mode: String) {
         viewModelScope.launch(engine) {
-            val style = currentStyle() ?: return@launch
-            val original = try {
-                BlankFaceBuilder.extractDonor(style, donorIndex).donorRasters.getOrNull(frameIndex)
-            } catch (_: Exception) {
-                null
-            } ?: return@launch
+            val original = donorRastersOf(donorIndex).getOrNull(frameIndex) ?: return@launch
             val bytes = store.readUriBytes(uri) ?: return@launch
             val decoded = decodeArgb(bytes, original.width * 2, original.height * 2) ?: return@launch
             val projectId = _ui.value.projectId
